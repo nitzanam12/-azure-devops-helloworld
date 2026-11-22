@@ -5,5 +5,14 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
-  - script: echo "Hello from Azure DevOps!"
-    displayName: "Test Pipeline"
+  - task: UseDotNet@2
+    displayName: 'Install .NET SDK'
+    inputs:
+      packageType: 'sdk'
+      version: '10.0.x'
+
+  - script: dotnet restore
+    displayName: 'Restore Dependencies'
+
+  - script: dotnet build --configuration Release --no-restore
+    displayName: 'Build Application'
