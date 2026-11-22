@@ -14,5 +14,22 @@ steps:
   - script: dotnet restore
     displayName: 'Restore Dependencies'
 
-  - script: dotnet build --configuration Release --no-restore
+  - script: dotnet build -c Release --no-restore
     displayName: 'Build Application'
+
+  - script: echo "Version = 1.0.$(Build.BuildId)"
+    displayName: 'Print Version'
+
+  - script: dotnet publish -c Release --no-restore -o $(Build.ArtifactStagingDirectory)/app
+    displayName: 'Publish Application'
+
+  - task: UniversalPackages@0
+    displayName: 'Upload to Azure Artifacts'
+    inputs:
+      command: 'publish'
+      publishDirectory: '$(Build.ArtifactStagingDirectory)/app'
+      feedsToUsePublish: 'internal'
+      vstsFeedPublish: 'nitzan-project-1/helloworld-feed'
+      vstsFeedPackagePublish: 'helloworld'
+      versionOption: 'custom'
+      versionPublish: '1.0.$(Build.BuildId)'
