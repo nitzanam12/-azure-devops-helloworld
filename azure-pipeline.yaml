@@ -1,5 +1,8 @@
 trigger:
-  - main
+  branches:
+    include:
+      - main
+      - release/sonarqube
 
 pool:
   vmImage: ubuntu-latest
@@ -25,6 +28,7 @@ steps:
 
   - task: UniversalPackages@0
     displayName: 'Upload to Azure Artifacts'
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     inputs:
       command: 'publish'
       publishDirectory: '$(Build.ArtifactStagingDirectory)/app'
@@ -33,3 +37,7 @@ steps:
       vstsFeedPackagePublish: 'helloworld'
       versionOption: 'custom'
       versionPublish: '1.0.$(Build.BuildId)'
+
+  - script: echo "Running Release Pipeline"
+    displayName: 'Test Release Condition'
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/release/sonarqube'))
