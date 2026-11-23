@@ -1,35 +1,97 @@
 trigger:
   - main
+  - release/sonarqube
+
+pr:
+  - main
 
 pool:
   vmImage: ubuntu-latest
 
+variables:
+  version: '1.0.$(Build.BuildId)'
+
 steps:
+  - checkout: self
+    fetchDepth: 0
+
   - task: UseDotNet@2
-    displayName: 'Install .NET SDK'
+    displayName: Install .NET SDK
     inputs:
-      packageType: 'sdk'
+      packageType: sdk
       version: '10.0.x'
 
-  - script: dotnet restore
-    displayName: 'Restore Dependencies'
+  # SonarQube
+  - task: SonarCloudPrepare@4.4.0
+    displayName: SonarQube Prepare
+    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.Reason'], 'PullRequest')))
+    inputs:
+      SonarCloud: sonarqube-cloud
+      organization: nitzanam12
+      scannerMode: dotnet
+      projectKey: nitzanam12_azure-devops-helloworld
 
-  - script: dotnet build -c Release --no-restore
-    displayName: 'Build Application'
+  # Build
+  - script: dotnet build HelloWorld.csproj -c Release -p:Version=$(version)
+    displayName: Build
 
-  - script: echo "Version = 1.0.$(Build.BuildId)"
-    displayName: 'Print Version'
+  - task: SonarCloudAnalyze@4.4.0
+    displayName: SonarQube Analyze
+    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.Reason'], 'PullRequest')))
 
-  - script: dotnet publish -c Release --no-restore -o $(Build.ArtifactStagingDirectory)/app
-    displayName: 'Publish Application'
+  - task: SonarCloudPublish@4.4.0
+    displayName: SonarQube Quality Gate
+    condition: and(succeeded(), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.Reason'], 'PullRequest')))
+    inputs:
+      pollingTimeoutSec: '300'
+
+  # Versioning
+  - script: echo "Version = $(version)"
+    displayName: Print Version
+
+  # Main branch
+  - script: dotnet publish HelloWorld.csproj -c Release --no-build -o "$(Build.ArtifactStagingDirectory)/app"
+    displayName: Publish Application
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
   - task: UniversalPackages@0
-    displayName: 'Upload to Azure Artifacts'
+    displayName: Publish Universal Package
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     inputs:
-      command: 'publish'
+      command: publish
       publishDirectory: '$(Build.ArtifactStagingDirectory)/app'
-      feedsToUsePublish: 'internal'
-      vstsFeedPublish: 'nitzan-project-1/helloworld-feed'
-      vstsFeedPackagePublish: 'helloworld'
-      versionOption: 'custom'
-      versionPublish: '1.0.$(Build.BuildId)'
+      feedsToUsePublish: internal
+      vstsFeedPublish: nitzan-project-1/helloworld-feed
+      vstsFeedPackagePublish: helloworld
+      versionOption: custom
+      versionPublish: '$(version)'
+
+  # Release branch
+  - script: dotnet pack HelloWorld.csproj -c Release --no-build -p:IsPackable=true -p:PackageVersion=$(version) -o "$(Build.ArtifactStagingDirectory)/nuget"
+    displayName: Create NuGet Package
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/release/sonarqube'))
+
+  - task: DotNetCoreCLI@2
+    displayName: Publish NuGet Package
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/release/sonarqube'))
+    inputs:
+      command: push
+      nuGetFeedType: internal
+      publishVstsFeed: nitzan-project-1/helloworld-feed
+      packagesToPush: '$(Build.ArtifactStagingDirectory)/nuget/*.nupkg'
+
+  # Artifact Tagging
+  - bash: |
+      tag="${BUILD_SOURCEBRANCH#refs/heads/}"
+      tag="${tag//\//_}_$(version)"
+      echo "##vso[task.setvariable variable=artifactName]$tag"
+      echo "##vso[build.addbuildtag]$tag"
+    displayName: Tag Artifact
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/release/sonarqube'))
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Pipeline Artifact
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/release/sonarqube'))
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/nuget'
+      artifact: '$(artifactName)'
